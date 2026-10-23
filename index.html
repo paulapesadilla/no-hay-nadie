@@ -136,7 +136,7 @@
     </div>
   </form>
 </div>
-<p class="info" id="info">Jugás como <b id="who"></b> · <button type="button" class="link" id="changeName">cambiar nombre</button><br>Espacio, clic o toque para saltar · otra vez en el aire: doble salto · mantené apretado para planear · P para pausar<br>Música: <b>Buhocracia</b> · “No hay nadie que nos mire del todo”</p>
+<p class="info" id="info">Jugás como <b id="who"></b> · <button type="button" class="link" id="changeName">cambiar nombre</button><br>Espacio, clic o toque para saltar · otra vez en el aire: doble salto · mantené apretado para planear · P para pausar<br>Cada tramo sin chocar sube tu racha y multiplica tus puntos · seguir después de chocar te cuesta cada vez más<br>Música: <b>Buhocracia</b> · “No hay nadie que nos mire del todo”</p>
 
 <script>
 'use strict';
@@ -630,13 +630,21 @@ let state = 'loading', time = 0, bgScroll = 0, stateT = 0;
 let owl, obs, notes, parts = [];
 let nextDist = 0, cpSeg = 0, crashes = 0, noteCount = 0;
 let banner = null, shake = 0, hitTimer = 0, speed = 60;
-// puntaje: al chocar volvés al puntaje con el que empezaste el tramo, menos 50
+// Puntaje pensado para que gane quien pasa los tramos al primer intento:
+// - cada tramo sin choques suma a la racha, y la racha multiplica todo lo que juntás;
+// - al chocar perdés lo del tramo y la racha;
+// - cada vez que retomás después de un choque te cuesta más (100, 200, 300...);
+// - terminar el tema sin ningún choque da un premio grande.
+const MAX_SCORE = 20000;
 let score = 0, cpScore = 0, pops = [];
+let streak = 0, bestStreak = 0, retries = 0, tramoClean = true;
 const segLen = () => DUR / SEGS;
+const mult = () => 1 + 0.1 * streak;
+const retryCost = () => 100 * (retries + 1);
 
-function addScore(n, x, y) {
+function addScore(n, x, y, col) {
   score += n;
-  pops.push({ text: '+' + n, x, y, life: 0.8 });
+  pops.push({ text: (n < 0 ? '' : '+') + n, x, y, life: 0.9, col });
 }
 
 // ---------- Jugador y ranking ----------
@@ -738,8 +746,12 @@ document.getElementById('changeName').addEventListener('click', () => {
 
 function finishRun(finished) {
   audio.pause();
-  if (finished) addScore(500, owl.x, owl.y - 30);
-  lastRun = { name: playerName, score, tramo: finished ? SEGS : cpSeg + 1, finished, saved: null, place: 0 };
+  if (finished) {
+    addScore(500, owl.x, owl.y - 30);
+    if (crashes === 0) addScore(2000, W / 2, 60, '#f2c23a');
+  }
+  score = Math.min(MAX_SCORE, Math.max(0, Math.round(score)));
+  lastRun = { name: playerName, score, tramo: finished ? SEGS : cpSeg + 1, finished, crashes, bestStreak, saved: null, place: 0 };
   setState('results');
   if (score > 0) saveScore(lastRun); else { lastRun.saved = false; lastRun.skipped = true; }
 }
@@ -768,6 +780,7 @@ function jump() {
 function startGame() {
   cpSeg = 0; crashes = 0; noteCount = 0; parts = []; pops = [];
   score = 0; cpScore = 0;
+  streak = 0; bestStreak = 0; retries = 0; tramoClean = true;
   resetWorld();
   audio.currentTime = 0;
   playAudio();
@@ -775,7 +788,12 @@ function startGame() {
   banner = { text: `TRAMO 1/${SEGS}`, t: 2 };
 }
 function resumeFromCheckpoint() {
+  const cost = retryCost();
+  retries++;
+  cpScore = Math.max(0, cpScore - cost);
+  score = cpScore;
   resetWorld();
+  pops.push({ text: '-' + cost, x: owl.x, y: owl.y - 30, life: 1.4, col: '#ff8a8a' });
   audio.currentTime = cpSeg * segLen();
   playAudio();
   setState('playing');
@@ -785,8 +803,9 @@ function crash() {
   setState('hit');
   hitTimer = 1.1;
   crashes++;
-  cpScore = Math.max(0, cpScore - 50);
   score = cpScore;
+  streak = 0;
+  tramoClean = false;
   pops = [];
   audio.pause();
   sfx('hit');
@@ -896,7 +915,12 @@ function update(dt) {
   const seg = Math.min(SEGS - 1, Math.floor(t / segLen()));
   if (seg > cpSeg) {
     cpSeg = seg; banner = { text: `TRAMO ${seg + 1}/${SEGS}`, t: 2.2 }; sfx('seg');
-    addScore(100, W / 2, 40);
+    if (tramoClean) {
+      streak++;
+      bestStreak = Math.max(bestStreak, streak);
+      addScore(100 * streak, W / 2, 40, '#f2c23a');
+    } else addScore(50, W / 2, 40);
+    tramoClean = true;
     cpScore = score;
   }
 
@@ -930,13 +954,13 @@ function update(dt) {
     if (bx1 > x0 && bx0 < x1 && by1 > y0 && by0 < y1) return crash();
     if (!o.passed && x1 < bx0) {
       o.passed = true;
-      addScore(POINTS[o.type] || 10, o.x, o.type === 'hawk' ? hawkY(o) - 8 : GROUND - 24);
+      addScore(Math.round((POINTS[o.type] || 10) * mult()), o.x, o.type === 'hawk' ? hawkY(o) - 8 : GROUND - 24);
     }
   }
   for (const n of notes) {
     if (Math.abs(n.x - owl.x) < 9 && n.y > by0 - 5 && n.y < by1 + 5) {
       n.got = true; noteCount++; sfx('note');
-      addScore(50, n.x, n.y - 12);
+      addScore(25, n.x, n.y - 12, '#f8d040');
       for (let i = 0; i < 6; i++) parts.push({ x: n.x, y: n.y, vx: (rand() - 0.5) * 60, vy: (rand() - 0.5) * 60, life: 0.4, c: '#f8d040', g: 0 });
     }
   }
@@ -1000,10 +1024,15 @@ function drawHUD() {
   rect('#7a5aa8', bx, by, Math.round(bw * cpSeg / SEGS), 4);
   rect('#f2c23a', bx, by, Math.round(bw * clamp(t / DUR, 0, 1)), 4);
   for (let i = 1; i < SEGS; i++) rect('#120c20', bx + Math.round(bw * i / SEGS), by, 1, 4);
-  txt(String(score).padStart(5, '0'), W - 3, 3, '#f8d040', 8, 'right');
+  txt(String(Math.round(score)).padStart(5, '0'), W - 3, 3, '#f8d040', 8, 'right');
+  if (streak > 0) {
+    const s = `RACHA x${mult().toFixed(1)}`;
+    rect('rgba(10,6,24,0.55)', W - 6 - s.length * 8, 14, s.length * 8 + 6, 11);
+    txt(s, W - 3, 16, '#f2c23a', 8, 'right');
+  }
 }
 function drawPops() {
-  for (const p of pops) txt(p.text, p.x, p.y, p.text === '+50' ? '#f8d040' : '#fff4d0', 8, 'center');
+  for (const p of pops) txt(p.text, p.x, p.y, p.col || '#fff4d0', 8, 'center');
 }
 function drawButton(b, active) {
   rect('#120c20', b.x, b.y, b.w, b.h);
@@ -1072,7 +1101,8 @@ function draw() {
     else if (r.best > r.score) msg = `TU RÉCORD: ${r.best} · PUESTO ${r.place}`;
     else { msg = `¡NUEVO RÉCORD! PUESTO ${r.place}`; col = '#f2c23a'; }
     txt(msg, W / 2, 38, col, 8, 'center');
-    if (r.saved !== null) drawRanking(54, 7, r.name);
+    txt(r.crashes === 0 ? 'SIN CHOQUES' : `CHOQUES ${r.crashes} · MEJOR RACHA ${r.bestStreak}`, W / 2, 50, '#9a8fb8', 8, 'center');
+    if (r.saved !== null) drawRanking(66, 6, r.name);
     if (stateT > 1.5 && r.saved !== null && blink()) txt('TOCÁ PARA VOLVER', W / 2, 136, '#fff4d0', 8, 'center');
   } else {
     drawScene(clamp(audio.currentTime / DUR, 0, 1));
@@ -1090,7 +1120,7 @@ function draw() {
     if (state === 'retry') {
       overlay();
       txt('¡AY!', W / 2, 30, '#ff6a6a', 16, 'center');
-      txt(`-50 · VOLVÉS AL TRAMO ${cpSeg + 1}`, W / 2, 56, '#f2e8cc', 8, 'center');
+      txt(`SEGUIR TE CUESTA -${retryCost()}`, W / 2, 56, '#ff8a8a', 8, 'center');
       txt(`PUNTAJE: ${score}`, W / 2, 70, '#f2c23a', 8, 'center');
       drawButton(BTN_GO, true);
       drawButton(BTN_END, false);
