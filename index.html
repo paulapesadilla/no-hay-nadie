@@ -68,12 +68,75 @@
     text-wrap: balance;
   }
   .info b { color: var(--accent); font-weight: normal; }
+  .screen { position: relative; }
+  .namebox {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    padding: 16px;
+    background: rgba(12, 10, 28, 0.82);
+    line-height: 1.6;
+    text-align: center;
+  }
+  .namebox[hidden] { display: none; }
+  .namebox label { font-size: clamp(10px, 2.4vw, 14px); color: var(--ink); }
+  .namebox .hint { font-size: 8px; color: var(--muted); }
+  .namebox input {
+    font: inherit;
+    font-size: clamp(12px, 3vw, 18px);
+    text-transform: uppercase;
+    text-align: center;
+    width: min(16ch, 90%);
+    padding: 10px 8px;
+    background: var(--panel);
+    color: var(--accent);
+    border: 3px solid var(--edge);
+    outline: none;
+  }
+  .namebox input:focus { border-color: var(--accent); }
+  .namebox .row { display: flex; gap: 12px; }
+  .namebox button, .info .link {
+    font: inherit;
+    cursor: pointer;
+  }
+  .namebox button {
+    font-size: 10px;
+    padding: 10px 14px;
+    background: var(--accent);
+    color: var(--bg);
+    border: 3px solid #120c20;
+  }
+  .namebox button.ghost { background: var(--panel); color: var(--ink); border-color: var(--edge); }
+  .namebox button:focus-visible, .info .link:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+  .info .link {
+    font-size: inherit;
+    background: none;
+    border: 0;
+    padding: 0;
+    color: var(--ink);
+    text-decoration: underline;
+  }
 </style>
 </head>
 <body>
 
-<div class="screen"><canvas id="game" width="240" height="160" tabindex="0" aria-label="Juego: No hay nadie que nos mire del todo"></canvas></div>
-<p class="info" id="info">Espacio, clic o toque para saltar · otra vez en el aire: doble salto · mantené apretado para planear · P para pausar<br>Música: <b>Buhocracia</b> · “No hay nadie que nos mire del todo”</p>
+<div class="screen">
+  <canvas id="game" width="240" height="160" tabindex="0" aria-label="Juego: No hay nadie que nos mire del todo"></canvas>
+  <form class="namebox" id="nameForm" hidden>
+    <label for="nameInput">¿Con qué nombre jugás?</label>
+    <input id="nameInput" maxlength="12" autocomplete="nickname" autocapitalize="characters" spellcheck="false" placeholder="TU NOMBRE" required>
+    <span class="hint">Hasta 12 letras. Con este nombre entrás al ranking.</span>
+    <div class="row">
+      <button type="button" class="ghost" id="nameCancel">Volver</button>
+      <button type="submit">¡A jugar!</button>
+    </div>
+  </form>
+</div>
+<p class="info" id="info">Jugás como <b id="who"></b> · <button type="button" class="link" id="changeName">cambiar nombre</button><br>Espacio, clic o toque para saltar · otra vez en el aire: doble salto · mantené apretado para planear · P para pausar<br>Música: <b>Buhocracia</b> · “No hay nadie que nos mire del todo”</p>
 
 <script>
 'use strict';
@@ -234,6 +297,58 @@ const GHOST_TOP = [
 const GHOST = [
   sprite([...GHOST_TOP, 'k.k.kk.kk.k.'], GHOST_PAL),
   sprite([...GHOST_TOP, '.k.kk.kk.k.k'], GHOST_PAL),
+];
+
+// Cazadores de búhos: un zorro que corre por el pasto y un águila que vuela bajo.
+const padRows = (rows, h) => {
+  const w = Math.max(...rows.map(r => r.length));
+  const out = rows.map(r => r.padEnd(w, '.'));
+  while (out.length < h) out.push('.'.repeat(w));
+  return out;
+};
+const FOX_PAL = { k: '#1a0c06', o: '#d8642a', O: '#9a3a14', w: '#f4ecd8', e: '#ffe040' };
+const FOX_TOP = [
+  '.k.k...............',
+  'kokok..............',
+  'koeoOk.............',
+  'kwoooOkkkkkkkkk..kk',
+  '.kwwooooooooooOkook',
+  '..kwoooooooooooOkwwk',
+  '...kooooooooooOkkk.',
+];
+const FOX = [
+  sprite(padRows([...FOX_TOP, '...kOk..kk..kOk', '...kk....k...kk'], 9), FOX_PAL),
+  sprite(padRows([...FOX_TOP, '....kOkk...kOk', '.....kk.....kk'], 9), FOX_PAL),
+];
+const HAWK_PAL = { k: '#1a0e06', b: '#7a5230', B: '#4a2c16', w: '#f4f0e0', e: '#d01818', y: '#f0b020' };
+const HAWK = [
+  sprite(padRows([
+    '...........kk',
+    '..........kBbk',
+    '.........kBbbk',
+    '........kBbbk',
+    '..kkk..kBbbk',
+    '.kwwwkkbbbbbbbbkkk',
+    'kyywewbbbbbbbbbbbbBkk',
+    'ky.kwwbbbbbbbbbbBBkkBk',
+    '.k.kkkkbbbbbbbkkk..kk',
+    '......kyk.kyk',
+  ], 13), HAWK_PAL),
+  sprite(padRows([
+    '',
+    '',
+    '',
+    '',
+    '..kkk',
+    '.kwwwkkbbbbbbbbkkk',
+    'kyywewbbbbbbbbbbbbBkk',
+    'ky.kwwbBbbbbbbbbBBkkBk',
+    '.k.kkkkBbbbkkkkkk..kk',
+    '......kBbbk.k',
+    '.......kBbk',
+    '........kBk',
+    '.........k',
+  ], 13), HAWK_PAL),
 ];
 
 const NOTE = sprite(outlined([
@@ -515,7 +630,119 @@ let state = 'loading', time = 0, bgScroll = 0, stateT = 0;
 let owl, obs, notes, parts = [];
 let nextDist = 0, cpSeg = 0, crashes = 0, noteCount = 0;
 let banner = null, shake = 0, hitTimer = 0, speed = 60;
+// puntaje: al chocar volvés al puntaje con el que empezaste el tramo, menos 50
+let score = 0, cpScore = 0, pops = [];
 const segLen = () => DUR / SEGS;
+
+function addScore(n, x, y) {
+  score += n;
+  pops.push({ text: '+' + n, x, y, life: 0.8 });
+}
+
+// ---------- Jugador y ranking ----------
+// Para el ranking compartido: pegá acá la URL y la clave "publishable" (o "anon") de tu proyecto de Supabase.
+// Si quedan vacías, el ranking se guarda solo en este navegador.
+const RANKING = { url: 'https://eqivjwwltkrjcroxlgop.supabase.co', key: 'sb_publishable_Ua5QERzwAo9DYu0iBxo94g_VxZnBNOd' };
+const NAME_KEY = 'buho-nombre', LOCAL_KEY = 'buho-puntajes';
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) { /* sin almacenamiento */ } },
+};
+let playerName = store.get(NAME_KEY) || '';
+let rankList = [], topStatus = 'cargando', lastRun = null;
+const online = () => !!(RANKING.url && RANKING.key);
+
+function cleanName(s) {
+  return s.toUpperCase().replace(/[^A-Z0-9ÑÁÉÍÓÚÜ ._-]/g, '').replace(/\s+/g, ' ').trim().slice(0, 12);
+}
+function apiHeaders(extra = {}) {
+  const h = { apikey: RANKING.key, ...extra };
+  if (!RANKING.key.startsWith('sb_')) h.Authorization = 'Bearer ' + RANKING.key;
+  return h;
+}
+// mejor puntaje de cada nombre, de mayor a menor
+function bestPerName(rows) {
+  const seen = new Set(), out = [];
+  for (const r of [...rows].sort((a, b) => b.score - a.score)) {
+    const k = r.name.toUpperCase();
+    if (!seen.has(k)) { seen.add(k); out.push(r); }
+  }
+  return out;
+}
+async function loadTop() {
+  try {
+    if (online()) {
+      const res = await fetch(`${RANKING.url}/rest/v1/puntajes?select=name,score,tramo&order=score.desc&limit=200`, { headers: apiHeaders() });
+      if (!res.ok) throw new Error(res.status);
+      rankList = bestPerName(await res.json());
+    } else {
+      rankList = bestPerName(JSON.parse(store.get(LOCAL_KEY) || '[]'));
+    }
+    topStatus = 'ok';
+  } catch (e) { topStatus = 'error'; }
+}
+async function saveScore(run) {
+  try {
+    if (online()) {
+      const res = await fetch(`${RANKING.url}/rest/v1/puntajes`, {
+        method: 'POST',
+        headers: apiHeaders({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }),
+        body: JSON.stringify({ name: run.name, score: run.score, tramo: run.tramo }),
+      });
+      if (!res.ok) throw new Error(res.status);
+    } else {
+      const all = JSON.parse(store.get(LOCAL_KEY) || '[]');
+      all.push({ name: run.name, score: run.score, tramo: run.tramo });
+      store.set(LOCAL_KEY, JSON.stringify(all.sort((a, b) => b.score - a.score).slice(0, 200)));
+    }
+    run.saved = true;
+  } catch (e) { run.saved = false; }
+  await loadTop();
+  run.place = rankList.findIndex(r => r.name.toUpperCase() === run.name.toUpperCase()) + 1;
+  run.best = rankList[run.place - 1]?.score ?? run.score;
+}
+loadTop();
+
+const nameForm = document.getElementById('nameForm');
+const nameInput = document.getElementById('nameInput');
+const whoEl = document.getElementById('who');
+function showWho() {
+  whoEl.textContent = playerName || 'sin nombre';
+}
+showWho();
+function askName() {
+  setState('name');
+  nameInput.value = playerName;
+  nameForm.hidden = false;
+  setTimeout(() => nameInput.focus(), 30);
+}
+nameForm.addEventListener('submit', e => {
+  e.preventDefault();
+  const n = cleanName(nameInput.value);
+  if (!n) { nameInput.focus(); return; }
+  playerName = n;
+  store.set(NAME_KEY, n);
+  showWho();
+  nameForm.hidden = true;
+  cv.focus({ preventScroll: true });
+  startGame();
+});
+document.getElementById('nameCancel').addEventListener('click', () => {
+  nameForm.hidden = true;
+  setState('title');
+  cv.focus({ preventScroll: true });
+});
+document.getElementById('changeName').addEventListener('click', () => {
+  if (state === 'title' || state === 'results') askName();
+});
+
+function finishRun(finished) {
+  audio.pause();
+  if (finished) addScore(500, owl.x, owl.y - 30);
+  lastRun = { name: playerName, score, tramo: finished ? SEGS : cpSeg + 1, finished, saved: null, place: 0 };
+  setState('results');
+  if (score > 0) saveScore(lastRun); else { lastRun.saved = false; lastRun.skipped = true; }
+}
 
 function resetWorld() {
   owl = { x: 52, y: GROUND, vy: 0, jumps: 0, glideT: 0, gliding: false };
@@ -524,7 +751,10 @@ function resetWorld() {
 }
 resetWorld();
 
-function setState(s) { state = s; stateT = 0; }
+function setState(s) {
+  state = s; stateT = 0;
+  if (s === 'title') loadTop();
+}
 
 function jump() {
   if (owl.jumps === 0 && owl.y >= GROUND - 0.5) {
@@ -536,7 +766,8 @@ function jump() {
 }
 
 function startGame() {
-  cpSeg = 0; crashes = 0; noteCount = 0; parts = [];
+  cpSeg = 0; crashes = 0; noteCount = 0; parts = []; pops = [];
+  score = 0; cpScore = 0;
   resetWorld();
   audio.currentTime = 0;
   playAudio();
@@ -554,21 +785,29 @@ function crash() {
   setState('hit');
   hitTimer = 1.1;
   crashes++;
+  cpScore = Math.max(0, cpScore - 50);
+  score = cpScore;
+  pops = [];
   audio.pause();
   sfx('hit');
   shake = reduceMotion ? 0 : 0.35;
   owl.vy = -150;
   for (let i = 0; i < 12; i++) parts.push({ x: owl.x, y: owl.y - 9, vx: (rand() - 0.5) * 90, vy: (rand() - 0.8) * 80, life: 0.9 + rand() * 0.5, c: rand() < 0.5 ? '#d8b078' : '#8a5a30', g: 60 });
 }
-function win() { setState('win'); sfx('win'); }
+function win() { sfx('win'); finishRun(true); }
 function pause() { if (state === 'playing') { audio.pause(); setState('paused'); } }
 
-function press() {
-  if (state === 'title') { if (songReady) startGame(); }
+// botones dibujados en la pantalla de choque
+const BTN_GO = { x: 30, y: 90, w: 84, h: 18, label: 'SEGUIR' };
+const BTN_END = { x: 126, y: 90, w: 84, h: 18, label: 'TERMINAR' };
+const inBtn = (b, p) => p && p.x >= b.x && p.x < b.x + b.w && p.y >= b.y && p.y < b.y + b.h;
+
+function press(p) {
+  if (state === 'title') { if (songReady) { if (playerName) startGame(); else askName(); } }
   else if (state === 'playing') jump();
-  else if (state === 'retry' && stateT > 0.3) resumeFromCheckpoint();
+  else if (state === 'retry' && stateT > 0.3) { if (inBtn(BTN_END, p)) finishRun(false); else resumeFromCheckpoint(); }
   else if (state === 'paused') { setState('playing'); playAudio(); }
-  else if (state === 'win' && stateT > 1.5) startGame();
+  else if (state === 'results' && stateT > 1.5 && lastRun.saved !== null) setState('title');
 }
 
 // ---------- Obstáculos ----------
@@ -584,15 +823,19 @@ function ghost(kind, x, d) {
   };
 }
 function ghostY(g) {
-  if (g.kind === 'low') return GROUND - 9 + Math.round(Math.sin(g.t * 4 + g.ph));
-  if (g.kind === 'high') return GROUND - 37 + Math.round(Math.sin(g.t * 3 + g.ph) * 2);
   return GROUND - 9 - (0.5 + 0.5 * Math.sin(g.t * g.fr + g.ph)) * 30;
 }
+// el zorro corre hacia el búho más rápido que el paisaje
+function fox(x, d) { return { type: 'fox', x, t: 0, ex: 30 + rand() * 25 + 35 * d }; }
+// el águila vuela a la altura de un salto: hay que quedarse abajo o pasarla por arriba
+function hawk(x, d, ex = 15 + rand() * 20 + 35 * d) { return { type: 'hawk', x, t: 0, ph: rand() * 6.28, ex }; }
+const hawkY = o => GROUND - 38 + Math.round(Math.sin(o.t * 3 + o.ph) * 3);
+const POINTS = { stump: 10, rock: 10, bramble: 10, ghost: 15, fox: 20, hawk: 20 };
 function spawn(d) {
   const opts = [['stump', 3], ['rock', 2]];
   if (d > 0.1) opts.push(['bramble', 1.5]);
-  if (d > 0.02) opts.push(['low', 1.5 + 2 * d]);
-  if (d > 0.08) opts.push(['high', 1.5 + d]);
+  if (d > 0.02) opts.push(['fox', 1.5 + 2 * d]);
+  if (d > 0.08) opts.push(['hawk', 1.5 + d]);
   if (d > 0.2) opts.push(['bob', 1 + 3 * d]);
   if (d > 0.25) opts.push(['double', 1 + 3 * d]);
   if (d > 0.45) opts.push(['combo', 3 * d]);
@@ -601,21 +844,23 @@ function spawn(d) {
 
   const x = W + 6;
   let extra = 0;
-  if (pick === 'low' || pick === 'high' || pick === 'bob') obs.push(ghost(pick, x, d));
+  if (pick === 'bob') obs.push(ghost(pick, x, d));
+  else if (pick === 'fox') obs.push(fox(x, d));
+  else if (pick === 'hawk') obs.push(hawk(x, d));
   else if (pick === 'double') {
     const a = ground(rand() < 0.5 ? 'rock' : 'stump', x, d * 0.6);
     const b = ground('rock', x + a.w + 26, d);
     obs.push(a, b);
     extra = a.w + 26 + b.w;
   } else if (pick === 'combo') {
-    // un tronco y, justo detrás, un ente alto: hay que planear o medir el salto
+    // un tronco y, justo detrás, un águila: hay que planear o medir el salto
     const a = ground('stump', x, d * 0.5);
-    obs.push(a, ghost('high', x + a.w + 34, d));
+    obs.push(a, hawk(x + a.w + 34, d, 0));
     extra = a.w + 40;
   } else obs.push(ground(pick, x, d));
 
   const last = obs[obs.length - 1];
-  if (last.type !== 'ghost' && rand() < 0.45) notes.push({ x: x + extra / 2 + 6, y: GROUND - 40 });
+  if (!(last.type in { ghost: 1, fox: 1, hawk: 1 }) && rand() < 0.45) notes.push({ x: x + extra / 2 + 6, y: GROUND - 40 });
   else if (rand() < 0.3) notes.push({ x: x + extra + 50, y: GROUND - 10 });
   return extra;
 }
@@ -630,8 +875,10 @@ function update(dt) {
   shake = Math.max(0, shake - dt);
   for (const p of parts) { p.vy += p.g * dt; p.x += p.vx * dt; p.y += p.vy * dt; p.life -= dt; }
   parts = parts.filter(p => p.life > 0);
+  for (const p of pops) { p.y -= 18 * dt; p.life -= dt; }
+  pops = pops.filter(p => p.life > 0);
 
-  if (state === 'title' || state === 'win' || state === 'loading') { bgScroll += 18 * dt; return; }
+  if (state === 'title' || state === 'results' || state === 'loading' || state === 'name') { bgScroll += 18 * dt; return; }
 
   if (state === 'hit') {
     owl.vy += GRAV * dt;
@@ -647,7 +894,11 @@ function update(dt) {
   bgScroll += speed * dt;
 
   const seg = Math.min(SEGS - 1, Math.floor(t / segLen()));
-  if (seg > cpSeg) { cpSeg = seg; banner = { text: `TRAMO ${seg + 1}/${SEGS}`, t: 2.2 }; sfx('seg'); }
+  if (seg > cpSeg) {
+    cpSeg = seg; banner = { text: `TRAMO ${seg + 1}/${SEGS}`, t: 2.2 }; sfx('seg');
+    addScore(100, W / 2, 40);
+    cpScore = score;
+  }
 
   owl.vy += GRAV * dt;
   // planeo: manteniendo apretado mientras cae, baja despacio y cada vez un poco más rápido
@@ -673,12 +924,19 @@ function update(dt) {
   for (const o of obs) {
     let x0, x1, y0, y1;
     if (o.type === 'ghost') { const gy = ghostY(o); x0 = o.x - 5; x1 = o.x + 5; y0 = gy - 5; y1 = gy + 5; }
+    else if (o.type === 'fox') { x0 = o.x - 7; x1 = o.x + 7; y0 = GROUND - 8; y1 = GROUND; }
+    else if (o.type === 'hawk') { const hy = hawkY(o); x0 = o.x - 7; x1 = o.x + 6; y0 = hy - 3; y1 = hy + 3; }
     else { x0 = o.x + 1; x1 = o.x + o.w - 1; y0 = GROUND - o.h + 1; y1 = GROUND; }
     if (bx1 > x0 && bx0 < x1 && by1 > y0 && by0 < y1) return crash();
+    if (!o.passed && x1 < bx0) {
+      o.passed = true;
+      addScore(POINTS[o.type] || 10, o.x, o.type === 'hawk' ? hawkY(o) - 8 : GROUND - 24);
+    }
   }
   for (const n of notes) {
     if (Math.abs(n.x - owl.x) < 9 && n.y > by0 - 5 && n.y < by1 + 5) {
       n.got = true; noteCount++; sfx('note');
+      addScore(50, n.x, n.y - 12);
       for (let i = 0; i < 6; i++) parts.push({ x: n.x, y: n.y, vx: (rand() - 0.5) * 60, vy: (rand() - 0.5) * 60, life: 0.4, c: '#f8d040', g: 0 });
     }
   }
@@ -694,6 +952,8 @@ function drawObstacle(o) {
     ctx.drawImage(GHOST[Math.floor(time * 5) % 2], gx, gy);
     return;
   }
+  if (o.type === 'fox') { ctx.drawImage(FOX[Math.floor(time * 12) % 2], x - 9, GROUND - 9); return; }
+  if (o.type === 'hawk') { ctx.drawImage(HAWK[Math.floor(time * 8) % 2], x - 10, hawkY(o) - 6); return; }
   const { w, h } = o, y = GROUND - h;
   if (o.type === 'stump') {
     rect('#1a0f08', x, y, w, h);
@@ -734,14 +994,38 @@ function drawHUD() {
   const t = audio.currentTime, seg = Math.min(SEGS, Math.floor(t / segLen()) + 1);
   rect('rgba(10,6,24,0.55)', 0, 0, W, 14);
   txt(`TRAMO ${Math.max(seg, cpSeg + 1)}/${SEGS}`, 3, 3, '#f2e8cc');
-  const bx = 98, bw = 100, by = 5;
+  const bx = 98, bw = 84, by = 5;
   rect('#120c20', bx - 1, by - 1, bw + 2, 6);
   rect('#2c2550', bx, by, bw, 4);
   rect('#7a5aa8', bx, by, Math.round(bw * cpSeg / SEGS), 4);
   rect('#f2c23a', bx, by, Math.round(bw * clamp(t / DUR, 0, 1)), 4);
   for (let i = 1; i < SEGS; i++) rect('#120c20', bx + Math.round(bw * i / SEGS), by, 1, 4);
-  ctx.drawImage(NOTE, 205, 2);
-  txt(String(noteCount), 215, 3, '#f8d040');
+  txt(String(score).padStart(5, '0'), W - 3, 3, '#f8d040', 8, 'right');
+}
+function drawPops() {
+  for (const p of pops) txt(p.text, p.x, p.y, p.text === '+50' ? '#f8d040' : '#fff4d0', 8, 'center');
+}
+function drawButton(b, active) {
+  rect('#120c20', b.x, b.y, b.w, b.h);
+  rect(active ? '#f2c23a' : '#4a3a78', b.x + 1, b.y + 1, b.w - 2, b.h - 2);
+  txt(b.label, b.x + b.w / 2, b.y + 5, active ? '#120c20' : '#f2e8cc', 8, 'center');
+}
+// tabla del ranking: puesto, nombre y puntaje, resaltando al jugador
+function drawRanking(y0, rows, hi) {
+  if (topStatus === 'cargando') { txt('CARGANDO RANKING...', W / 2, y0 + 30, '#9a8fb8', 8, 'center'); return; }
+  if (topStatus === 'error') { txt('SIN CONEXIÓN AL RANKING', W / 2, y0 + 30, '#ff8a8a', 8, 'center'); return; }
+  if (!rankList.length) { txt('TODAVÍA NO HAY PUNTAJES', W / 2, y0 + 20, '#9a8fb8', 8, 'center'); txt('¡SÉ LA PRIMERA PERSONA!', W / 2, y0 + 34, '#f2c23a', 8, 'center'); return; }
+  const hiIdx = hi ? rankList.findIndex(r => r.name.toUpperCase() === hi.toUpperCase()) : -1;
+  let list = rankList.slice(0, rows).map((r, i) => [i, r]);
+  if (hiIdx >= rows) list = [...list.slice(0, rows - 1), [hiIdx, rankList[hiIdx]]];
+  list.forEach(([i, r], j) => {
+    const y = y0 + j * 11, me = i === hiIdx;
+    if (me) rect('rgba(242,194,58,0.25)', 22, y - 2, W - 44, 11);
+    const col = me ? '#f2c23a' : i === 0 ? '#fff4d0' : '#e0d8f0';
+    txt(String(i + 1).padStart(2, ' ') + '.', 26, y, col);
+    txt(r.name, 58, y, col);
+    txt(String(r.score), W - 26, y, col, 8, 'right');
+  });
 }
 function overlay(a = 0.6) { rect(`rgba(10,6,24,${a})`, 0, 0, W, H); }
 const blink = () => Math.floor(time * 2.5) % 2 === 0;
@@ -753,6 +1037,16 @@ function draw() {
   if (state === 'loading') {
     drawScene(0);
     txt('CARGANDO...', W / 2, 74, '#f2e8cc', 8, 'center');
+  } else if (state === 'name') {
+    drawScene(0);
+    drawLogo(6);
+  } else if (state === 'title' && stateT % 14 > 8) {
+    // modo vidriera: cada tanto la portada muestra el ranking
+    drawScene(0);
+    overlay(0.45);
+    txt('RANKING', W / 2, 8, '#f2c23a', 16, 'center');
+    drawRanking(32, 9, playerName);
+    if (blink()) txt('TOCÁ PARA EMPEZAR', W / 2, 136, '#f2e8cc', 8, 'center');
   } else if (state === 'title') {
     drawScene(0);
     drawLogo(6);
@@ -765,22 +1059,28 @@ function draw() {
     txt('MANTENÉ: PLANEAR', W / 2, 122, '#9a8fb8', 8, 'center');
     const flapNow = Math.floor(time * 0.5) % 3 === 0;
     drawOwl(W / 2, GROUND, flapNow ? (Math.floor(time * 10) % 2 ? 1 : 2) : 0, false);
-  } else if (state === 'win') {
-    drawScene(1);
-    rect('rgba(10,6,24,0.5)', 16, 34, W - 32, 62);
-    drawLogo(6);
-    txt('¡LLEGASTE AL FINAL!', W / 2, 40, '#fff4d0', 8, 'center');
-    txt('NO HAY NADIE QUE', W / 2, 56, '#f2c23a', 8, 'center');
-    txt('NOS MIRE DEL TODO', W / 2, 66, '#f2c23a', 8, 'center');
-    txt(`CHOQUES ${crashes}   NOTAS ${noteCount}`, W / 2, 82, '#fff4d0', 8, 'center');
-    drawOwl(W / 2 + Math.sin(time) * 40, 124 + Math.round(Math.sin(time * 3) * 4), Math.floor(time * 10) % 2 ? 1 : 2, true);
-    if (stateT > 1.5 && blink()) txt('TOCÁ PARA JUGAR OTRA VEZ', W / 2, 134, '#fff4d0', 8, 'center');
+  } else if (state === 'results') {
+    const r = lastRun;
+    drawScene(r.finished ? 1 : clamp(audio.currentTime / DUR, 0, 1));
+    overlay(0.55);
+    txt(r.finished ? '¡LLEGASTE AL FINAL!' : `LLEGASTE AL TRAMO ${r.tramo}`, W / 2, 6, '#fff4d0', 8, 'center');
+    txt(String(r.score), W / 2, 18, '#f2c23a', 16, 'center');
+    let msg, col = '#e0d8f0';
+    if (r.saved === null) msg = 'GUARDANDO...';
+    else if (r.skipped) msg = 'SIN PUNTOS NO HAY RANKING';
+    else if (!r.saved) { msg = 'NO SE PUDO GUARDAR'; col = '#ff8a8a'; }
+    else if (r.best > r.score) msg = `TU RÉCORD: ${r.best} · PUESTO ${r.place}`;
+    else { msg = `¡NUEVO RÉCORD! PUESTO ${r.place}`; col = '#f2c23a'; }
+    txt(msg, W / 2, 38, col, 8, 'center');
+    if (r.saved !== null) drawRanking(54, 7, r.name);
+    if (stateT > 1.5 && r.saved !== null && blink()) txt('TOCÁ PARA VOLVER', W / 2, 136, '#fff4d0', 8, 'center');
   } else {
     drawScene(clamp(audio.currentTime / DUR, 0, 1));
     for (const n of notes) if (!n.got) ctx.drawImage(NOTE, Math.round(n.x) - 4, Math.round(n.y + Math.sin(time * 5) * 1.5) - 5);
     for (const o of obs) drawObstacle(o);
     const run = owl.y >= GROUND && state === 'playing' && !audio.paused ? Math.floor(time * 10) % 2 : 0;
     if (!(state === 'hit' && Math.floor(time * 12) % 2)) drawOwl(owl.x, owl.y, state === 'hit' ? 1 : owlFrameNow(), owl.y < GROUND, -run);
+    drawPops();
     drawHUD();
     if (banner) {
       rect('rgba(10,6,24,0.7)', W / 2 - 52, 16, 104, 14);
@@ -789,10 +1089,13 @@ function draw() {
     if (state === 'playing' && buffering) txt('CARGANDO...', W / 2, 92, '#f2e8cc', 8, 'center');
     if (state === 'retry') {
       overlay();
-      txt('¡AY!', W / 2, 44, '#ff6a6a', 16, 'center');
-      txt(`VOLVÉS AL TRAMO ${cpSeg + 1}`, W / 2, 72, '#f2e8cc', 8, 'center');
-      if (blink()) txt('TOCÁ PARA SEGUIR', W / 2, 94, '#f2c23a', 8, 'center');
-      txt(`CHOQUES: ${crashes}`, W / 2, 118, '#9a8fb8', 8, 'center');
+      txt('¡AY!', W / 2, 30, '#ff6a6a', 16, 'center');
+      txt(`-50 · VOLVÉS AL TRAMO ${cpSeg + 1}`, W / 2, 56, '#f2e8cc', 8, 'center');
+      txt(`PUNTAJE: ${score}`, W / 2, 70, '#f2c23a', 8, 'center');
+      drawButton(BTN_GO, true);
+      drawButton(BTN_END, false);
+      txt('ESPACIO: SEGUIR · T: TERMINAR', W / 2, 118, '#9a8fb8', 8, 'center');
+      txt(`CHOQUES: ${crashes}`, W / 2, 132, '#9a8fb8', 8, 'center');
     } else if (state === 'paused') {
       overlay();
       txt('PAUSA', W / 2, 56, '#f2e8cc', 16, 'center');
@@ -821,15 +1124,23 @@ Promise.race([
 
 // ---------- Controles ----------
 const JUMP_KEYS = ['Space', 'ArrowUp', 'KeyW', 'Enter'];
-cv.addEventListener('pointerdown', e => { e.preventDefault(); cv.focus({ preventScroll: true }); held = true; press(); });
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  cv.focus({ preventScroll: true });
+  held = true;
+  const r = cv.getBoundingClientRect();
+  press({ x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H });
+});
 addEventListener('pointerup', () => { held = false; });
 addEventListener('pointercancel', () => { held = false; });
 addEventListener('blur', () => { held = false; });
 addEventListener('keyup', e => { if (JUMP_KEYS.includes(e.code)) held = false; });
 addEventListener('keydown', e => {
+  if (state === 'name' || e.target.closest?.('form, button')) return; // escribiendo el nombre o usando un botón
   if (JUMP_KEYS.includes(e.code)) { e.preventDefault(); held = true; }
   if (e.repeat) return;
   if (JUMP_KEYS.includes(e.code)) press();
+  else if (e.code === 'KeyT' && state === 'retry' && stateT > 0.3) finishRun(false);
   else if (e.code === 'KeyP' || e.code === 'Escape') { if (state === 'playing') pause(); else if (state === 'paused') press(); }
 });
 document.addEventListener('visibilitychange', () => { if (document.hidden) pause(); });
