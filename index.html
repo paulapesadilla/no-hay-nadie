@@ -69,6 +69,21 @@
   }
   .info b { color: var(--accent); font-weight: normal; }
   .screen { position: relative; }
+  .pad { display: none; gap: 12px; width: 100%; max-width: 480px; }
+  @media (pointer: coarse) { .pad { display: flex; } }
+  .pad button {
+    flex: 1;
+    min-height: 56px;
+    font: inherit;
+    font-size: 12px;
+    color: var(--ink);
+    background: var(--panel);
+    border: 3px solid var(--edge);
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .pad button.on { background: var(--accent); color: var(--bg); }
   .namebox {
     position: absolute;
     inset: 0;
@@ -136,13 +151,17 @@
     </div>
   </form>
 </div>
-<p class="info" id="info">Jugás como <b id="who"></b> · <button type="button" class="link" id="changeName">cambiar nombre</button><br>Espacio, clic o toque para saltar · otra vez en el aire: doble salto · mantené apretado para planear · P para pausar<br>Cada tramo sin chocar sube tu racha y multiplica tus puntos · seguir después de chocar te cuesta cada vez más<br>Música: <b>Buhocracia</b> · “No hay nadie que nos mire del todo”</p>
+<div class="pad" id="pad">
+  <button type="button" id="padDown" aria-label="Abajo: agacharse o picado">▼ ABAJO</button>
+  <button type="button" id="padJump" aria-label="Saltar, mantener para planear">▲ SALTAR</button>
+</div>
+<p class="info" id="info">Jugás como <b id="who"></b> · <button type="button" class="link" id="changeName">cambiar nombre</button><br>Saltar: espacio o toque · otra vez: doble salto · mantené: planear · ↓ o S: agacharse, y en el aire picado · P: pausa<br>Sin chocar sumás racha · seguir después de chocar cuesta cada vez más · hay caminos secretos<br>Música: <b>Buhocracia</b> · “No hay nadie que nos mire del todo” · <a class="link" href="https://open.spotify.com/track/5hP9lxjGQRfjq2loWqSR2V" target="_blank" rel="noopener">escuchala en Spotify</a></p>
 
 <script>
 'use strict';
 const W = 240, H = 160, GROUND = 148, SEGS = 12;
-const GRAV = 640, JUMP = 210, JUMP2 = 190, GLIDE_FALL = 28;
-let held = false;
+const GRAV = 640, JUMP = 210, JUMP2 = 190, GLIDE_FALL = 28, DIVE = 330;
+let held = false, down = false;
 let DUR = 211.08;
 
 const cv = document.getElementById('game');
@@ -213,6 +232,9 @@ function sfx(type) {
     else if (type === 'hit') { tone(420, 60, 0, 0.35, 'square', 0.08); tone(200, 40, 0.05, 0.4, 'sawtooth', 0.05); }
     else if (type === 'note') { tone(988, 0, 0, 0.06, 'square', 0.035); tone(1319, 0, 0.06, 0.1, 'square', 0.035); }
     else if (type === 'seg') { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0, i * 0.07, 0.12, 'square', 0.04)); }
+    else if (type === 'dive') tone(880, 220, 0, 0.12, 'square', 0.025);
+    else if (type === 'stomp') { tone(180, 60, 0, 0.12, 'square', 0.07); tone(660, 1320, 0.05, 0.12, 'square', 0.04); }
+    else if (type === 'secret') { [784, 988, 1175, 1568, 1976].forEach((f, i) => tone(f, 0, i * 0.06, 0.18, 'triangle', 0.05)); }
     else if (type === 'win') { [523, 659, 784, 1047, 784, 1047].forEach((f, i) => tone(f, 0, i * 0.12, 0.2, 'square', 0.05)); }
   } catch (e) { /* sin efectos de sonido */ }
 }
@@ -279,6 +301,19 @@ function owlFrame(wing) {
   }), OWL_PAL);
 }
 const OWL = [owlFrame(WING_FOLD), owlFrame(WING_UP), owlFrame(WING_DOWN)];
+// búho agachado: las mismas filas del cuerpo, sin algunas del medio
+const DUCK = sprite([0, 3, 5, 6, 7, 8, 9, 11, 12, 16, 17].map(j => (WING_FOLD[j] || '.....') + OWL_BODY[j] + rev(WING_FOLD[j] || '.....')), OWL_PAL);
+const FEATHER = sprite([
+  '.....k',
+  '....yk',
+  '...yYk',
+  '..yYyk',
+  '.yYyk.',
+  '.yYyk.',
+  'yYyk..',
+  'yyk...',
+  'k.....',
+], { y: '#ffd040', Y: '#fff6b0', k: '#a06010' });
 
 const GHOST_PAL = { k: '#1a0a24', g: '#4a2a6a', h: '#6e4592', r: '#a01020', R: '#ff4a4a' };
 const GHOST_TOP = [
@@ -349,6 +384,22 @@ const HAWK = [
     '........kBk',
     '.........k',
   ], 13), HAWK_PAL),
+];
+
+// puercoespín con pinchos claros
+const HOG_PAL = { k: '#1a120a', S: '#efe6d6', s: '#7a6a58', b: '#a87a50', e: '#120800', n: '#3a2010' };
+const HOG_TOP = [
+  '....k.k.k.k.k..',
+  '...kSkSkSkSkSk.',
+  '..kSsSsSsSsSsSk',
+  '.kbsSsSsSsSsSsk',
+  'kbebSsSsSsSsSsk',
+  'nbbbbbbbbbbbbbk',
+  '.kkbbbbbbbbbbk.',
+];
+const HEDGEHOG = [
+  sprite(padRows([...HOG_TOP, '..kbk..kbk..kbk', '..kk...kk...kk.'], 10), HOG_PAL),
+  sprite(padRows([...HOG_TOP, '...kbk..kbk.kbk', '...kk...kk..kk.'], 10), HOG_PAL),
 ];
 
 const NOTE = sprite(outlined([
@@ -635,9 +686,14 @@ let banner = null, shake = 0, hitTimer = 0, speed = 60;
 // - al chocar perdés lo del tramo y la racha;
 // - cada vez que retomás después de un choque te cuesta más (100, 200, 300...);
 // - terminar el tema sin ningún choque da un premio grande.
-const MAX_SCORE = 20000;
+const MAX_SCORE = 100000;
 let score = 0, cpScore = 0, pops = [];
-let streak = 0, bestStreak = 0, retries = 0, tramoClean = true;
+let streak = 0, bestStreak = 0, retries = 0, tramoClean = true, stomps = 0;
+let rng = seeded(1), spawnIdx = 0, chain = 0, ride = 0;
+// reloj del juego: avanza a pasos fijos, la música se acomoda a él (no al revés)
+let simT = 0;
+const STEP = 1 / 120;
+let secret = null, secretsFound = 0, secretTaken = {};
 const segLen = () => DUR / SEGS;
 const mult = () => 1 + 0.1 * streak;
 const retryCost = () => 100 * (retries + 1);
@@ -650,6 +706,8 @@ function addScore(n, x, y, col) {
 // ---------- Jugador y ranking ----------
 // Para el ranking compartido: pegá acá la URL y la clave "publishable" (o "anon") de tu proyecto de Supabase.
 // Si quedan vacías, el ranking se guarda solo en este navegador.
+// modo de prueba: abrí la página con ?inmune y nada te hace perder (no se guarda en el ranking)
+const INMUNE = new URLSearchParams(location.search).has('inmune');
 const RANKING = { url: 'https://eqivjwwltkrjcroxlgop.supabase.co', key: 'sb_publishable_Ua5QERzwAo9DYu0iBxo94g_VxZnBNOd' };
 const NAME_KEY = 'buho-nombre', LOCAL_KEY = 'buho-puntajes';
 const store = {
@@ -751,15 +809,17 @@ function finishRun(finished) {
     if (crashes === 0) addScore(2000, W / 2, 60, '#f2c23a');
   }
   score = Math.min(MAX_SCORE, Math.max(0, Math.round(score)));
-  lastRun = { name: playerName, score, tramo: finished ? SEGS : cpSeg + 1, finished, crashes, bestStreak, saved: null, place: 0 };
+  lastRun = { name: playerName, score, tramo: finished ? SEGS : cpSeg + 1, finished, crashes, bestStreak, stomps, secrets: secretsFound, saved: null, place: 0 };
   setState('results');
-  if (score > 0) saveScore(lastRun); else { lastRun.saved = false; lastRun.skipped = true; }
+  if (score > 0 && !INMUNE) saveScore(lastRun); else { lastRun.saved = false; lastRun.skipped = true; }
 }
 
 function resetWorld() {
-  owl = { x: 52, y: GROUND, vy: 0, jumps: 0, glideT: 0, gliding: false };
+  owl = { x: 52, y: GROUND, vy: 0, jumps: 0, glideT: 0, gliding: false, ducking: false, diving: false };
   obs = []; notes = [];
   nextDist = 110;
+  secret = null;
+  ride = 0;
 }
 resetWorld();
 
@@ -780,9 +840,13 @@ function jump() {
 function startGame() {
   cpSeg = 0; crashes = 0; noteCount = 0; parts = []; pops = [];
   score = 0; cpScore = 0;
-  streak = 0; bestStreak = 0; retries = 0; tramoClean = true;
+  streak = 0; bestStreak = 0; retries = 0; tramoClean = true; stomps = 0;
+  secretTaken = {}; secretsFound = 0;
+  chain = 0;
+  seedTramo(0);
   resetWorld();
   audio.currentTime = 0;
+  simT = 0;
   playAudio();
   setState('playing');
   banner = { text: `TRAMO 1/${SEGS}`, t: 2 };
@@ -792,9 +856,11 @@ function resumeFromCheckpoint() {
   retries++;
   cpScore = Math.max(0, cpScore - cost);
   score = cpScore;
+  seedTramo(cpSeg);
   resetWorld();
   pops.push({ text: '-' + cost, x: owl.x, y: owl.y - 30, life: 1.4, col: '#ff8a8a' });
   audio.currentTime = cpSeg * segLen();
+  simT = cpSeg * segLen();
   playAudio();
   setState('playing');
   banner = { text: `TRAMO ${cpSeg + 1}/${SEGS}`, t: 1.6 };
@@ -803,8 +869,13 @@ function crash() {
   setState('hit');
   hitTimer = 1.1;
   crashes++;
+  // si chocaste en el mismo tramo de la pluma, la pluma vuelve a aparecer al retomar
+  if (secret && secret.seg === cpSeg) { secretTaken[secret.seg] = false; secretsFound--; }
+  secret = null;
+  owl.diving = false; owl.ducking = false;
   score = cpScore;
   streak = 0;
+  chain = 0;
   tramoClean = false;
   pops = [];
   audio.pause();
@@ -819,6 +890,9 @@ function pause() { if (state === 'playing') { audio.pause(); setState('paused');
 // botones dibujados en la pantalla de choque
 const BTN_GO = { x: 30, y: 90, w: 84, h: 18, label: 'SEGUIR' };
 const BTN_END = { x: 126, y: 90, w: 84, h: 18, label: 'TERMINAR' };
+// al final de la partida, para ir a escuchar la canción
+const SPOTIFY = 'https://open.spotify.com/track/5hP9lxjGQRfjq2loWqSR2V';
+const BTN_SPOTIFY = { x: 30, y: 145, w: 180, h: 13 };
 const inBtn = (b, p) => p && p.x >= b.x && p.x < b.x + b.w && p.y >= b.y && p.y < b.y + b.h;
 
 function press(p) {
@@ -826,48 +900,109 @@ function press(p) {
   else if (state === 'playing') jump();
   else if (state === 'retry' && stateT > 0.3) { if (inBtn(BTN_END, p)) finishRun(false); else resumeFromCheckpoint(); }
   else if (state === 'paused') { setState('playing'); playAudio(); }
+  else if (state === 'results' && inBtn(BTN_SPOTIFY, p)) window.open(SPOTIFY, '_blank', 'noopener');
   else if (state === 'results' && stateT > 1.5 && lastRun.saved !== null) setState('title');
 }
 
 // ---------- Obstáculos ----------
+// Cada tramo usa siempre la misma semilla: todos juegan exactamente el mismo recorrido.
+function seedTramo(seg) { rng = seeded(90001 + seg * 7919); spawnIdx = 0; }
+// Dificultad: sube de a poco en el primer tercio y fuerte desde el segundo.
+const hardness = d => smooth(0.33, 1, d);
+
 function ground(type, x, d) {
-  if (type === 'stump') return { type, x, w: 12 + ((rand() * 5) | 0), h: Math.round(13 + rand() * (8 + 14 * d)) };
-  if (type === 'rock') return { type, x, w: 14 + ((rand() * 7) | 0), h: 8 + ((rand() * 4) | 0) };
-  return { type: 'bramble', x, w: 18 + ((rand() * 7) | 0), h: 9 };
+  if (type === 'stump') return { type, x, w: 12 + ((rng() * 5) | 0), h: Math.round(13 + rng() * (8 + 14 * d)) };
+  if (type === 'rock') return { type, x, w: 14 + ((rng() * 7) | 0), h: 8 + ((rng() * 4) | 0) };
+  return { type: 'bramble', x, w: 18 + ((rng() * 7) | 0), h: 9 };
 }
-function ghost(kind, x, d) {
+function ghost(kind, x, d, spiky = d > 0.4 && rng() < 0.2 + 0.4 * hardness(d)) {
   return {
-    type: 'ghost', kind, x, t: 0, ph: rand() * 6.28, fr: 2 + rand() * 1.5,
-    ex: d > 0.3 ? rand() * (10 + 30 * (d - 0.3) / 0.7) : 0,
+    type: 'ghost', kind, x, t: 0, ph: rng() * 6.28, fr: 2 + rng() * 1.5 + 2 * hardness(d),
+    ex: d > 0.3 ? rng() * (10 + 30 * (d - 0.3) / 0.7) : 0,
+    spiky,
   };
 }
+// puercoespín: camina despacio, y con los pinchos no se lo puede derribar
+function hedgehog(x) { return { type: 'hedgehog', x, t: 0, ex: 12 + rng() * 10, spiky: true }; }
 function ghostY(g) {
   return GROUND - 9 - (0.5 + 0.5 * Math.sin(g.t * g.fr + g.ph)) * 30;
 }
 // el zorro corre hacia el búho más rápido que el paisaje
-function fox(x, d) { return { type: 'fox', x, t: 0, ex: 30 + rand() * 25 + 35 * d }; }
+function fox(x, d, ex = 30 + rng() * 25 + 35 * d) { return { type: 'fox', x, t: 0, ex }; }
 // el águila vuela a la altura de un salto: hay que quedarse abajo o pasarla por arriba
-function hawk(x, d, ex = 15 + rand() * 20 + 35 * d) { return { type: 'hawk', x, t: 0, ph: rand() * 6.28, ex }; }
+function hawk(x, d, ex = 15 + rng() * 20 + 35 * d) { return { type: 'hawk', x, t: 0, ph: rng() * 6.28, ex }; }
 const hawkY = o => GROUND - 38 + Math.round(Math.sin(o.t * 3 + o.ph) * 3);
-const POINTS = { stump: 10, rock: 10, bramble: 10, ghost: 15, fox: 20, hawk: 20 };
-function spawn(d) {
+// rama colgante: baja desde arriba hasta casi el piso, solo se pasa agachado
+const VINE_BOTTOM = GROUND - 12;
+const POINTS = { stump: 10, rock: 10, bramble: 10, ghost: 15, fox: 20, hawk: 20, vine: 25, hedgehog: 25, wall: 40, dragon: 80 };
+// Dragones diabólicos (desde el tramo 9): trenes largos que ondulan; cada vértebra es un obstáculo.
+// bajo: se reptan por el piso, hay que saltarlos y planear · alto: ondula a la altura del búho, hay que agacharse
+// doble: uno abajo y otro arriba, hay que saltar sin doble salto · dorado: se lo puede montar a picados
+const DSEG = 8;
+const DRAGON_FROM = 8, GOLD_SEG = 10;
+function dragon(kind, x, n) {
+  const k = { low: [GROUND - 6, 3, 20], high: [GROUND - 22, 8, 10], top: [GROUND - 60, 3, 20], gold: [GROUND - 30, 8, -120] }[kind];
+  return { type: 'dragon', kind, x, n, t: 0, y0: k[0], amp: k[1], ex: k[2], fr: 2 + rng() * 1.2, ph: rng() * 6.28, lit: [], spiky: true };
+}
+const dragonY = (o, i) => o.y0 + Math.round(Math.sin(o.t * o.fr - i * 0.55 + o.ph) * o.amp);
+const dragonLen = o => o.n * DSEG + 6;
+// picado: caer en picada sobre un enemigo lo derriba
+const STOMP = { fox: 150, ghost: 200, hawk: 300 };
+// Plumas doradas escondidas: en estos tramos, derribar 3 bichos seguidos en picado hace aparecer la pluma,
+// que lleva al camino secreto del cielo. Dejar pasar un bicho vivo corta la cadena.
+const SECRET_SEGS = [4, 8];
+const CHAIN_NEEDED = 3;
+
+function spawn(d, seg) {
+  spawnIdx++;
+  const x = W + 6, hard = hardness(d);
+  if (SECRET_SEGS.includes(seg) && spawnIdx >= 2 && spawnIdx <= 4) {
+    // en los tramos secretos siempre vienen tres bichos que se pueden derribar, uno tras otro
+    const trio = [fox(x, d, 20), ghost('bob', x, d, false), fox(x, d, 28)];
+    obs.push(trio[spawnIdx - 2]);
+    return 0;
+  }
+  if (seg === GOLD_SEG && spawnIdx === 3) {
+    // el dragón dorado vuela casi a la par del búho: el que se anima, lo monta a picados
+    const g = dragon('gold', x, 30);
+    obs.push(g);
+    banner = { text: '¡DRAGÓN DORADO!', t: 2.2 };
+    // el próximo obstáculo sale recién cuando el dragón terminó de pasar
+    return speed * (W + 6 - owl.x + dragonLen(g)) / (speed + g.ex) - (W + 6 - owl.x) + 40;
+  }
+  if (seg === DRAGON_FROM && spawnIdx === 1) {
+    // el primer dragón llega apenas empieza el tramo 9
+    const o = dragon('low', x, 10);
+    obs.push(o);
+    banner = { text: '¡DRAGONES!', t: 2 };
+    return dragonLen(o);
+  }
   const opts = [['stump', 3], ['rock', 2]];
   if (d > 0.1) opts.push(['bramble', 1.5]);
   if (d > 0.02) opts.push(['fox', 1.5 + 2 * d]);
   if (d > 0.08) opts.push(['hawk', 1.5 + d]);
   if (d > 0.2) opts.push(['bob', 1 + 3 * d]);
   if (d > 0.25) opts.push(['double', 1 + 3 * d]);
-  if (d > 0.45) opts.push(['combo', 3 * d]);
-  let r = rand() * opts.reduce((a, o) => a + o[1], 0), pick = opts[0][0];
+  if (d > 0.3) opts.push(['vine', 2 + 3 * hard]);
+  if (d > 0.4) opts.push(['combo', 3 * d]);
+  if (d > 0.45) opts.push(['pack', 4 * hard]);
+  if (d > 0.5) opts.push(['vinefox', 4 * hard]);
+  if (d > 0.6) opts.push(['tall', 3 * hard]);
+  if (d > 0.35) opts.push(['hedgehog', 1.5 + 2 * hard]);
+  if (d > 0.7) opts.push(['gauntlet', 4 * hard]);
+  if (seg >= DRAGON_FROM) opts.push(['dlow', 5], ['dhigh', 5]);
+  if (seg >= DRAGON_FROM + 1) opts.push(['dpair', 6]);
+  let r = rng() * opts.reduce((a, o) => a + o[1], 0), pick = opts[0][0];
   for (const [k, w] of opts) { if ((r -= w) <= 0) { pick = k; break; } }
 
-  const x = W + 6;
   let extra = 0;
   if (pick === 'bob') obs.push(ghost(pick, x, d));
   else if (pick === 'fox') obs.push(fox(x, d));
   else if (pick === 'hawk') obs.push(hawk(x, d));
+  else if (pick === 'hedgehog') obs.push(hedgehog(x));
+  else if (pick === 'vine') { obs.push({ type: 'vine', x, w: 10 }); extra = 10; }
   else if (pick === 'double') {
-    const a = ground(rand() < 0.5 ? 'rock' : 'stump', x, d * 0.6);
+    const a = ground(rng() < 0.5 ? 'rock' : 'stump', x, d * 0.6);
     const b = ground('rock', x + a.w + 26, d);
     obs.push(a, b);
     extra = a.w + 26 + b.w;
@@ -876,16 +1011,120 @@ function spawn(d) {
     const a = ground('stump', x, d * 0.5);
     obs.push(a, hawk(x + a.w + 34, d, 0));
     extra = a.w + 40;
+  } else if (pick === 'pack') {
+    // dos zorros juntos: un salto largo o dos picados seguidos
+    const ex = 25 + rng() * 20;
+    obs.push(fox(x, d, ex), fox(x + 30, d, ex));
+    extra = 40;
+  } else if (pick === 'vinefox') {
+    // agacharse bajo la rama y enseguida saltar el zorro
+    obs.push({ type: 'vine', x, w: 10 }, fox(x + 95, d, 15));
+    extra = 100;
+  } else if (pick === 'tall') {
+    // tronco altísimo: hace falta doble salto
+    obs.push({ type: 'stump', x, w: 14, h: 36 + ((rng() * 4) | 0) });
+    extra = 14;
+  } else if (pick === 'gauntlet') {
+    // piedra, águila justo después y espinas: saltar, tirarse en picado y volver a saltar
+    obs.push(ground('rock', x, d), hawk(x + 60, d, 0), ground('bramble', x + 125, d));
+    extra = 150;
+  } else if (pick === 'dlow' || pick === 'dhigh') {
+    const o = dragon(pick === 'dlow' ? 'low' : 'high', x, 9 + ((rng() * 5) | 0));
+    obs.push(o);
+    extra = dragonLen(o);
+  } else if (pick === 'dpair') {
+    // uno se arrastra y otro vuela arriba: un salto simple y planear, sin doble salto
+    const n = 9 + ((rng() * 2) | 0);
+    obs.push(dragon('low', x, n), dragon('top', x - 10, n + 3));
+    extra = n * DSEG + 20;
   } else obs.push(ground(pick, x, d));
 
   const last = obs[obs.length - 1];
-  if (!(last.type in { ghost: 1, fox: 1, hawk: 1 }) && rand() < 0.45) notes.push({ x: x + extra / 2 + 6, y: GROUND - 40 });
-  else if (rand() < 0.3) notes.push({ x: x + extra + 50, y: GROUND - 10 });
+  if (!(last.type in { ghost: 1, fox: 1, hawk: 1, vine: 1, hedgehog: 1, dragon: 1 }) && rng() < 0.45) notes.push({ x: x + extra / 2 + 6, y: GROUND - 40 });
+  else if (rng() < 0.3) notes.push({ x: x + extra + 50, y: GROUND - 10 });
   return extra;
 }
 function gapFor(d) {
-  const minG = speed * 0.75 + 30;
-  return Math.max(minG, speed * (1.2 - 0.5 * d) + rand() * speed * (0.7 - 0.35 * d));
+  const hard = hardness(d);
+  const minG = speed * (0.72 - 0.12 * hard) + 28;
+  const g = Math.max(minG, speed * (1.15 - 0.35 * d - 0.25 * hard) + rng() * speed * (0.6 - 0.3 * d));
+  return g * (1 - 0.15 * smooth(0.66, 0.8, d)); // desde el tramo 9, todo más pegado
+}
+
+// ---------- Camino secreto ----------
+// El cielo: paredes de tormenta con un hueco que se achica y, a veces, se mueve.
+// Tocar una tormenta o las nubes del piso te tira de vuelta al bosque (no cuenta como choque).
+const SKY_TIME = 14;
+function startSecret(seg) {
+  secretTaken[seg] = true;
+  secretsFound++;
+  const r = seeded(4242 + seg);
+  // los huecos salen de una semilla fija: el cielo es igual para todos
+  // cada hueco se corre como mucho 40 px del anterior: difícil, pero siempre posible
+  let g = 90;
+  const gaps = Array.from({ length: 40 }, () => (g = clamp(Math.round(g + (r() - 0.5) * 80), 52, 124)));
+  secret = { seg, t: SKY_TIME, wallT: 1.0, k: 0, gaps };
+  obs = []; notes = [];
+  owl.y = Math.min(owl.y, 96); owl.vy = -160; owl.diving = false;
+  banner = { text: '¡CAMINO SECRETO!', t: 2.2 };
+  addScore(Math.round(500 * mult()), owl.x + 20, owl.y - 30, '#f2c23a');
+  sfx('secret');
+  for (let i = 0; i < 24; i++) parts.push({ x: owl.x, y: owl.y - 9, vx: (rand() - 0.5) * 140, vy: (rand() - 0.5) * 140, life: 0.8, c: rand() < 0.5 ? '#fff6b0' : '#ffd040', g: 0 });
+}
+function endSecret(ok) {
+  secret = null;
+  obs = []; notes = [];
+  nextDist = 170;
+  owl.jumps = 1;
+  if (ok) {
+    owl.vy = 0;
+    banner = { text: '¡CIELO COMPLETO!', t: 2 };
+    addScore(Math.round(1500 * mult()), W / 2, 50, '#f2c23a');
+    sfx('win');
+  } else {
+    owl.vy = 60;
+    banner = { text: '¡TE CAÍSTE DEL CIELO!', t: 2 };
+    sfx('hit');
+    shake = reduceMotion ? 0 : 0.3;
+    for (let i = 0; i < 12; i++) parts.push({ x: owl.x, y: owl.y - 9, vx: (rand() - 0.5) * 90, vy: (rand() - 0.8) * 80, life: 0.9, c: rand() < 0.5 ? '#d8b078' : '#8a5a30', g: 60 });
+  }
+}
+const wallGapY = o => o.gy + (o.amp ? Math.round(Math.sin(o.t * 2.6 + o.ph) * o.amp) : 0);
+function updateSecret(dt) {
+  secret.t -= dt;
+  // vuelo libre: mantené apretado para subir
+  owl.vy += 300 * dt;
+  if (held) owl.vy -= 720 * dt;
+  owl.vy = clamp(owl.vy, -125, 125);
+  owl.y = Math.max(32, owl.y + owl.vy * dt);
+  if (owl.y >= GROUND - 14) { if (INMUNE) { owl.y = GROUND - 14; owl.vy = 0; } else return endSecret(false); } // las nubes del piso no aguantan
+  if (secret.t > 1.2 && (secret.wallT -= dt) <= 0) {
+    const k = secret.k++;
+    secret.wallT = Math.max(0.55, 0.85 - k * 0.02);
+    const gap = Math.max(27, 44 - k * 1.1);
+    const moving = k >= 4 && k % 3 !== 0;
+    const o = { type: 'wall', x: W + 10, w: 14, gy: secret.gaps[k % secret.gaps.length], gap, t: 0, ph: k, amp: moving ? 10 + Math.min(14, k) : 0 };
+    obs.push(o);
+    notes.push({ x: o.x + 7, y: o.gy, big: true, wall: o });
+  }
+  for (const o of obs) { o.x -= speed * dt; o.t += dt; }
+  for (const n of notes) { n.x -= speed * dt; if (n.wall) n.y = wallGapY(n.wall); }
+  const bx0 = owl.x - 5, bx1 = owl.x + 5, by0 = owl.y - 15, by1 = owl.y - 1;
+  for (const o of obs) {
+    const cy = wallGapY(o), top = cy - o.gap / 2, bot = cy + o.gap / 2;
+    if (bx1 > o.x && bx0 < o.x + o.w && (by0 < top || by1 > bot) && !INMUNE) return endSecret(false);
+    if (!o.passed && o.x + o.w < bx0) { o.passed = true; addScore(Math.round(POINTS.wall * mult()), o.x, top - 10); }
+  }
+  for (const n of notes) {
+    if (!n.got && Math.abs(n.x - owl.x) < 9 && n.y > by0 - 5 && n.y < by1 + 5) {
+      n.got = true; noteCount++; sfx('note');
+      addScore(Math.round(100 * mult()), n.x, n.y - 12, '#f8d040');
+    }
+  }
+  obs = obs.filter(o => o.x > -20);
+  notes = notes.filter(n => n.x > -10 && !n.got);
+  if (rand() < dt * 20) parts.push({ x: owl.x - 6, y: owl.y - 4 - rand() * 10, vx: -30, vy: 0, life: 0.4, c: '#fff6b0', g: 0 });
+  if (secret.t <= 0) endSecret(true);
 }
 
 function update(dt) {
@@ -907,14 +1146,20 @@ function update(dt) {
   }
   if (state !== 'playing' || audio.paused || buffering) return;
 
-  const t = audio.currentTime;
+  simT += dt;
+  if (simT >= DUR) return win();
+  // si la música se corre del juego, la volvemos a poner en su lugar
+  if (Math.abs(audio.currentTime - simT) > 0.3) audio.currentTime = simT;
+  const t = simT;
   const d = clamp(t / DUR, 0, 1);
-  speed = 80 + 90 * d;
+  speed = 82 + 30 * d + 80 * hardness(d) + 18 * smooth(0.66, 1, d);
   bgScroll += speed * dt;
 
   const seg = Math.min(SEGS - 1, Math.floor(t / segLen()));
   if (seg > cpSeg) {
-    cpSeg = seg; banner = { text: `TRAMO ${seg + 1}/${SEGS}`, t: 2.2 }; sfx('seg');
+    cpSeg = seg; seedTramo(seg);
+    if (!secret) banner = { text: `TRAMO ${seg + 1}/${SEGS}`, t: 2.2 };
+    sfx('seg');
     if (tramoClean) {
       streak++;
       bestStreak = Math.max(bestStreak, streak);
@@ -924,46 +1169,117 @@ function update(dt) {
     cpScore = score;
   }
 
+  if (secret) return updateSecret(dt);
+
+  const onGround = owl.y >= GROUND;
+  owl.ducking = down && onGround;
+  if (down && !onGround && !owl.diving) {
+    owl.diving = true; sfx('dive');
+  }
   owl.vy += GRAV * dt;
-  // planeo: manteniendo apretado mientras cae, baja despacio y cada vez un poco más rápido
-  owl.gliding = held && owl.vy > 0 && owl.y < GROUND;
-  if (owl.gliding) {
-    owl.glideT += dt;
-    owl.vy = Math.min(owl.vy, GLIDE_FALL + owl.glideT * 55);
+  if (owl.diving) {
+    owl.gliding = false;
+    owl.vy = Math.max(owl.vy, DIVE);
+    if (rand() < dt * 40) parts.push({ x: owl.x - 4 + rand() * 8, y: owl.y - 20, vx: 0, vy: -60, life: 0.2, c: '#fff6e0', g: 0 });
+  } else {
+    // planeo: manteniendo apretado mientras cae, baja despacio y cada vez un poco más rápido
+    owl.gliding = held && owl.vy > 0 && owl.y < GROUND;
+    if (owl.gliding) {
+      owl.glideT += dt;
+      owl.vy = Math.min(owl.vy, GLIDE_FALL + owl.glideT * 55);
+    }
   }
   owl.y += owl.vy * dt;
-  if (owl.y >= GROUND) { owl.y = GROUND; owl.vy = 0; owl.jumps = 0; owl.glideT = 0; }
-  if (owl.y < GROUND && rand() < dt * 12) parts.push({ x: owl.x - 6, y: owl.y - 4 - rand() * 10, vx: -20, vy: 0, life: 0.35, c: '#fff08a', g: 0 });
+  if (owl.y >= GROUND) { owl.y = GROUND; owl.vy = 0; owl.jumps = 0; owl.glideT = 0; owl.diving = false; }
+  if (owl.y < GROUND && !owl.diving && rand() < dt * 12) parts.push({ x: owl.x - 6, y: owl.y - 4 - rand() * 10, vx: -20, vy: 0, life: 0.35, c: '#fff08a', g: 0 });
 
   nextDist -= speed * dt;
-  if (nextDist <= 0 && t < DUR - 6) nextDist = gapFor(d) + spawn(d);
+  if (nextDist <= 0 && t < DUR - 6) nextDist = gapFor(d) + spawn(d, seg);
 
   for (const o of obs) { o.x -= (speed + (o.ex || 0)) * dt; if (o.t !== undefined) o.t += dt; }
-  obs = obs.filter(o => o.x > -40);
   for (const n of notes) n.x -= speed * dt;
-  notes = notes.filter(n => n.x > -10 && !n.got);
 
-  // caja del búho, un poco más chica que el dibujo para que sea justo
-  const bx0 = owl.x - 5, bx1 = owl.x + 5, by0 = owl.y - 15, by1 = owl.y - 1;
+  // caja del búho, un poco más chica que el dibujo para que sea justo; agachado mide la mitad
+  const bx0 = owl.x - 5, bx1 = owl.x + 5, by0 = owl.y - (owl.ducking ? 8 : 15), by1 = owl.y - 1;
+  if (owl.y >= GROUND) ride = 0;
   for (const o of obs) {
+    if (o.dead) continue;
+    if (o.type === 'dragon') {
+      for (let i = 0; i < o.n; i++) {
+        const sx = o.x + i * DSEG, sy = dragonY(o, i), head = i === 0;
+        const x0 = sx - (head ? 6 : 4), x1 = sx + 4, y0 = sy - (head ? 6 : 5), y1 = sy + 5;
+        if (!(bx1 > x0 && bx0 < x1 && by1 > y0 && by0 < y1)) continue;
+        if (o.kind === 'gold' && !head && owl.diving && by1 - y0 < 10) { rideDragon(o, i, y0); break; }
+        if (INMUNE) continue;
+        return crash();
+      }
+      if (!o.passed && o.x + dragonLen(o) < bx0) {
+        o.passed = true;
+        if (o.kind !== 'gold') addScore(Math.round(POINTS.dragon * mult()), o.x + dragonLen(o), dragonY(o, o.n - 1) - 12);
+      }
+      continue;
+    }
     let x0, x1, y0, y1;
     if (o.type === 'ghost') { const gy = ghostY(o); x0 = o.x - 5; x1 = o.x + 5; y0 = gy - 5; y1 = gy + 5; }
     else if (o.type === 'fox') { x0 = o.x - 7; x1 = o.x + 7; y0 = GROUND - 8; y1 = GROUND; }
+    else if (o.type === 'hedgehog') { x0 = o.x - 7; x1 = o.x + 7; y0 = GROUND - 9; y1 = GROUND; }
     else if (o.type === 'hawk') { const hy = hawkY(o); x0 = o.x - 7; x1 = o.x + 6; y0 = hy - 3; y1 = hy + 3; }
+    else if (o.type === 'vine') { x0 = o.x; x1 = o.x + o.w; y0 = 0; y1 = VINE_BOTTOM; }
     else { x0 = o.x + 1; x1 = o.x + o.w - 1; y0 = GROUND - o.h + 1; y1 = GROUND; }
-    if (bx1 > x0 && bx0 < x1 && by1 > y0 && by0 < y1) return crash();
+    if (bx1 > x0 && bx0 < x1 && by1 > y0 && by0 < y1) {
+      // en picado, caerle de arriba a un enemigo lo derriba; cualquier otro toque es choque
+      if (owl.diving && STOMP[o.type] && !o.spiky && by1 - y0 < 10) { stomp(o, y0); continue; }
+      if (INMUNE) continue;
+      return crash();
+    }
     if (!o.passed && x1 < bx0) {
       o.passed = true;
+      if (STOMP[o.type] && !o.spiky) chain = 0; // dejaste pasar un bicho vivo
       addScore(Math.round((POINTS[o.type] || 10) * mult()), o.x, o.type === 'hawk' ? hawkY(o) - 8 : GROUND - 24);
     }
   }
+  obs = obs.filter(o => o.x + (o.type === 'dragon' ? dragonLen(o) : 0) > -40 && !o.dead);
   for (const n of notes) {
-    if (Math.abs(n.x - owl.x) < 9 && n.y > by0 - 5 && n.y < by1 + 5) {
-      n.got = true; noteCount++; sfx('note');
-      addScore(25, n.x, n.y - 12, '#f8d040');
+    if (Math.abs(n.x - owl.x) < (n.feather ? 11 : 9) && n.y > by0 - 6 && n.y < by1 + 6) {
+      n.got = true;
+      if (n.feather) { startSecret(n.seg); return; }
+      noteCount++; sfx('note');
+      addScore(Math.round(25 * mult()), n.x, n.y - 12, '#f8d040');
       for (let i = 0; i < 6; i++) parts.push({ x: n.x, y: n.y, vx: (rand() - 0.5) * 60, vy: (rand() - 0.5) * 60, life: 0.4, c: '#f8d040', g: 0 });
     }
   }
+  notes = notes.filter(n => n.x > -10 && !n.got);
+}
+// montar el dragón dorado: cada vértebra nueva que pisás en picado sin tocar el piso vale más que la anterior
+function rideDragon(o, i, topY) {
+  if (!o.lit[i]) {
+    o.lit[i] = true;
+    ride++;
+    addScore(Math.round(100 * ride * mult()), o.x + i * DSEG, topY - 14, '#ffe060');
+    if (ride === 6) {
+      banner = { text: '¡JINETE DE DRAGÓN!', t: 2 };
+      addScore(Math.round(2000 * mult()), W / 2, 50, '#f2c23a');
+      sfx('secret');
+    }
+  }
+  sfx('stomp');
+  owl.y = topY; owl.vy = -230; owl.jumps = 1; owl.diving = false;
+  for (let k = 0; k < 10; k++) parts.push({ x: owl.x, y: topY + 2, vx: (rand() - 0.5) * 100, vy: -rand() * 80, life: 0.5, c: rand() < 0.5 ? '#ffd040' : '#fff6b0', g: 200 });
+}
+function stomp(o, topY) {
+  o.dead = true; o.passed = true;
+  stomps++;
+  chain++;
+  addScore(Math.round(STOMP[o.type] * mult()), o.x, topY - 14, '#ff9a4a');
+  // tercer picado seguido en un tramo secreto: aparece la pluma, alta, adelante
+  if (chain >= CHAIN_NEEDED && SECRET_SEGS.includes(cpSeg) && !secretTaken[cpSeg] && !notes.some(n => n.feather)) {
+    notes.push({ x: owl.x + 115, y: GROUND - 72, feather: true, seg: cpSeg });
+    sfx('secret');
+  }
+  sfx('stomp');
+  owl.y = topY; owl.vy = -230; owl.jumps = 1; owl.diving = false;
+  shake = reduceMotion ? 0 : 0.12;
+  for (let i = 0; i < 14; i++) parts.push({ x: o.x, y: topY + 4, vx: (rand() - 0.5) * 120, vy: -rand() * 90, life: 0.6, c: rand() < 0.5 ? '#ff9a4a' : '#fff6e0', g: 200 });
 }
 
 // ---------- Dibujo ----------
@@ -973,11 +1289,47 @@ function drawObstacle(o) {
   if (o.type === 'ghost') {
     const gx = x - 6, gy = Math.round(ghostY(o)) - 6;
     rect('rgba(160,40,90,0.2)', gx - 2, gy - 2, 16, 16);
+    if (o.spiky) {
+      // pinchos alrededor: este no se puede derribar
+      const c = gx + 6, m = gy + 6;
+      for (const [dx, dy] of [[0, -9], [0, 9], [-9, 0], [9, 0], [-7, -7], [7, -7], [-7, 7], [7, 7]]) {
+        rect('#ff3a3a', c + dx - 1, m + dy - 1, 2, 2);
+        rect('#ffd0d0', c + Math.round(dx * 0.75), m + Math.round(dy * 0.75), 1, 1);
+      }
+    }
     ctx.drawImage(GHOST[Math.floor(time * 5) % 2], gx, gy);
     return;
   }
   if (o.type === 'fox') { ctx.drawImage(FOX[Math.floor(time * 12) % 2], x - 9, GROUND - 9); return; }
   if (o.type === 'hawk') { ctx.drawImage(HAWK[Math.floor(time * 8) % 2], x - 10, hawkY(o) - 6); return; }
+  if (o.type === 'vine') {
+    // rama gruesa que cuelga desde arriba, con hojas en la punta
+    rect('#120a06', x + 2, 0, 7, VINE_BOTTOM - 4);
+    rect('#3a2616', x + 3, 0, 5, VINE_BOTTOM - 4);
+    rect('#5a3c22', x + 4, 0, 1, VINE_BOTTOM - 4);
+    for (let y = 18; y < VINE_BOTTOM - 8; y += 14) { rect('#2a5a2a', x - 2, y, 4, 3); rect('#2a5a2a', x + 9, y + 6, 4, 3); }
+    rect('#14301a', x - 1, VINE_BOTTOM - 6, 13, 6);
+    rect('#3c7a3a', x, VINE_BOTTOM - 6, 11, 4);
+    rect('#5aa848', x + 2, VINE_BOTTOM - 6, 3, 1); rect('#5aa848', x + 7, VINE_BOTTOM - 5, 2, 1);
+    return;
+  }
+  if (o.type === 'wall') {
+    // columna de tormenta con un hueco; los rayos titilan
+    const cy = wallGapY(o), top = Math.round(cy - o.gap / 2), bot = Math.round(cy + o.gap / 2);
+    const col = (y0, y1) => {
+      rect('#1e1a34', x - 1, y0, o.w + 2, y1 - y0);
+      rect('#3a3458', x, y0, o.w, y1 - y0);
+      for (let y = y0 + 3; y < y1 - 2; y += 7) rect('#57507c', x + 2 + (y % 3), y, o.w - 5, 2);
+    };
+    col(14, top); col(bot, GROUND + 4);
+    rect('#57507c', x - 3, top - 4, o.w + 6, 4); rect('#57507c', x - 3, bot, o.w + 6, 4);
+    if (Math.floor(time * 8 + o.ph) % 4 === 0) {
+      rect('#fff060', x + 5, 20, 2, top - 26); rect('#fff060', x + 7, bot + 8, 2, GROUND - bot - 10);
+    }
+    return;
+  }
+  if (o.type === 'dragon') { drawDragon(o); return; }
+  if (o.type === 'hedgehog') { ctx.drawImage(HEDGEHOG[Math.floor(time * 6) % 2], x - 8, GROUND - 10); return; }
   const { w, h } = o, y = GROUND - h;
   if (o.type === 'stump') {
     rect('#1a0f08', x, y, w, h);
@@ -999,6 +1351,35 @@ function drawObstacle(o) {
     rect('#c02040', x + 4, y + 5, 2, 2); rect('#c02040', x + w - 7, y + 4, 2, 2);
   }
 }
+const DRAGON_PAL = {
+  evil: { k: '#12040a', b: '#5a1030', B: '#8a1838', l: '#c83a4a', s: '#ff3a3a', e: '#ffe040', h: '#e8d8c0' },
+  gold: { k: '#3a2206', b: '#b07818', B: '#e0a828', l: '#ffe070', s: '#fff6b0', e: '#ff3a3a', h: '#fff6e0' },
+};
+function drawDragon(o) {
+  const P = DRAGON_PAL[o.kind === 'gold' ? 'gold' : 'evil'];
+  // de la cola a la cabeza, así la cabeza queda arriba
+  for (let i = o.n - 1; i >= 1; i--) {
+    const sx = Math.round(o.x + i * DSEG), sy = dragonY(o, i), r = i === o.n - 1 ? 3 : 5;
+    rect(P.k, sx - r, sy - r + 1, r * 2, r * 2 - 1);
+    rect(o.lit[i] ? P.s : P.b, sx - r + 1, sy - r + 2, r * 2 - 2, r * 2 - 3);
+    rect(P.B, sx - r + 1, sy - r + 2, r * 2 - 2, 2);
+    rect(P.l, sx - r + 2, sy + r - 3, r * 2 - 4, 1);
+    // púas del lomo
+    if (r > 3) { rect(P.k, sx - 1, sy - r - 2, 3, 3); rect(P.s, sx, sy - r - 2, 1, 2); }
+  }
+  const hx = Math.round(o.x), hy = dragonY(o, 0);
+  rect(P.k, hx - 8, hy - 6, 14, 12);
+  rect(P.b, hx - 7, hy - 5, 12, 10);
+  rect(P.B, hx - 7, hy - 5, 12, 3);
+  // cuernos
+  rect(P.k, hx + 1, hy - 10, 3, 5); rect(P.h, hx + 2, hy - 9, 1, 3);
+  rect(P.k, hx - 4, hy - 9, 3, 4); rect(P.h, hx - 3, hy - 8, 1, 2);
+  // ojo y fauces con colmillos
+  rect(P.e, hx - 4, hy - 3, 3, 2); rect(P.k, hx - 3, hy - 3, 1, 2);
+  rect(P.k, hx - 9, hy + 1, 7, 3);
+  rect(P.h, hx - 8, hy + 1, 1, 1); rect(P.h, hx - 5, hy + 1, 1, 1);
+  if (Math.floor(time * 10 + o.ph) % 3 === 0) { rect('#ff8a20', hx - 13, hy + 1, 4, 2); rect('#ffe040', hx - 11, hy + 2, 2, 1); }
+}
 function drawOwl(x, y, frame, airborne, bob = 0) {
   const ox = Math.round(x) - 12, oy = Math.round(y) - 18 + bob;
   // bufanda al viento
@@ -1009,13 +1390,39 @@ function drawOwl(x, y, frame, airborne, bob = 0) {
   }
   ctx.drawImage(OWL[frame], ox, oy);
 }
+function drawDuck(x, y) {
+  const ox = Math.round(x) - 12, oy = Math.round(y) - 11;
+  for (let i = 0; i < 8; i++) rect(i % 3 === 2 ? '#8a1a20' : '#d83030', ox + 4 - i, oy + 6 + Math.round(Math.sin(time * 14 - i * 0.9) * 0.6), 1, 2);
+  ctx.drawImage(DUCK, ox, oy);
+}
+// el cielo del camino secreto: tinte dorado, nubes de piso y nubecitas
+function drawSecretSky() {
+  rect('rgba(255,210,140,0.18)', 0, 0, W, H);
+  const off = Math.floor(bgScroll * 0.6) % 32;
+  for (let x = -off - 32; x < W + 32; x += 32) {
+    rect('#f6e6f0', x, GROUND - 10, 34, 22);
+    rect('#f6e6f0', x + 6, GROUND - 16, 20, 8);
+    rect('#ffffff', x + 9, GROUND - 15, 10, 3);
+    rect('#d8c0d8', x, GROUND + 6, 34, 2);
+  }
+  const off2 = Math.floor(bgScroll * 0.3) % 120;
+  for (let x = -off2; x < W + 120; x += 120) {
+    rect('rgba(255,255,255,0.7)', x + 20, 34, 26, 5); rect('rgba(255,255,255,0.7)', x + 26, 31, 12, 3);
+    rect('rgba(255,255,255,0.5)', x + 80, 58, 20, 4);
+  }
+  const left = Math.max(0, secret.t / SKY_TIME);
+  rect('#120c20', 8, H - 8, W - 16, 4);
+  rect('#f2c23a', 9, H - 7, Math.round((W - 18) * left), 2);
+}
 function owlFrameNow() {
+  if (secret) return held ? (Math.floor(time * 14) % 2 ? 1 : 2) : 1;
+  if (owl.diving) return 0;
   if (owl.y >= GROUND) return 0;
   if (owl.gliding) return Math.floor(time * 5) % 2 ? 1 : 2;
   return owl.vy < 0 ? (Math.floor(time * 14) % 2 ? 1 : 2) : 1;
 }
 function drawHUD() {
-  const t = audio.currentTime, seg = Math.min(SEGS, Math.floor(t / segLen()) + 1);
+  const t = simT, seg = Math.min(SEGS, Math.floor(t / segLen()) + 1);
   rect('rgba(10,6,24,0.55)', 0, 0, W, 14);
   txt(`TRAMO ${Math.max(seg, cpSeg + 1)}/${SEGS}`, 3, 3, '#f2e8cc');
   const bx = 98, bw = 84, by = 5;
@@ -1030,6 +1437,7 @@ function drawHUD() {
     rect('rgba(10,6,24,0.55)', W - 6 - s.length * 8, 14, s.length * 8 + 6, 11);
     txt(s, W - 3, 16, '#f2c23a', 8, 'right');
   }
+  if (INMUNE) txt('INMUNE', 3, 16, '#7ae0ff');
 }
 function drawPops() {
   for (const p of pops) txt(p.text, p.x, p.y, p.col || '#fff4d0', 8, 'center');
@@ -1086,11 +1494,12 @@ function draw() {
     else if (blink()) txt('TOCÁ PARA EMPEZAR', W / 2, 100, '#f2e8cc', 8, 'center');
     txt('2 TOQUES: DOBLE SALTO', W / 2, 112, '#9a8fb8', 8, 'center');
     txt('MANTENÉ: PLANEAR', W / 2, 122, '#9a8fb8', 8, 'center');
+    txt('ABAJO: AGACHAR · PICADO', W / 2, 132, '#9a8fb8', 8, 'center');
     const flapNow = Math.floor(time * 0.5) % 3 === 0;
-    drawOwl(W / 2, GROUND, flapNow ? (Math.floor(time * 10) % 2 ? 1 : 2) : 0, false);
+    drawOwl(W - 14, GROUND, flapNow ? (Math.floor(time * 10) % 2 ? 1 : 2) : 0, false);
   } else if (state === 'results') {
     const r = lastRun;
-    drawScene(r.finished ? 1 : clamp(audio.currentTime / DUR, 0, 1));
+    drawScene(r.finished ? 1 : clamp(simT / DUR, 0, 1));
     overlay(0.55);
     txt(r.finished ? '¡LLEGASTE AL FINAL!' : `LLEGASTE AL TRAMO ${r.tramo}`, W / 2, 6, '#fff4d0', 8, 'center');
     txt(String(r.score), W / 2, 18, '#f2c23a', 16, 'center');
@@ -1101,15 +1510,35 @@ function draw() {
     else if (r.best > r.score) msg = `TU RÉCORD: ${r.best} · PUESTO ${r.place}`;
     else { msg = `¡NUEVO RÉCORD! PUESTO ${r.place}`; col = '#f2c23a'; }
     txt(msg, W / 2, 38, col, 8, 'center');
-    txt(r.crashes === 0 ? 'SIN CHOQUES' : `CHOQUES ${r.crashes} · MEJOR RACHA ${r.bestStreak}`, W / 2, 50, '#9a8fb8', 8, 'center');
-    if (r.saved !== null) drawRanking(66, 6, r.name);
-    if (stateT > 1.5 && r.saved !== null && blink()) txt('TOCÁ PARA VOLVER', W / 2, 136, '#fff4d0', 8, 'center');
+    txt(r.crashes === 0 ? 'SIN CHOQUES' : `CHOQUES ${r.crashes} · RACHA ${r.bestStreak}`, W / 2, 50, '#9a8fb8', 8, 'center');
+    txt(`PICADOS ${r.stomps} · SECRETOS ${r.secrets}/${SECRET_SEGS.length}`, W / 2, 60, '#9a8fb8', 8, 'center');
+    if (r.saved !== null) drawRanking(76, 5, r.name);
+    if (stateT > 1.5 && r.saved !== null && blink()) txt('TOCÁ PARA VOLVER', W / 2, 134, '#fff4d0', 8, 'center');
+    const b = BTN_SPOTIFY;
+    rect('#0a1a0e', b.x, b.y, b.w, b.h);
+    rect('#1db954', b.x + 1, b.y + 1, b.w - 2, b.h - 2);
+    txt('ESCUCHALA EN SPOTIFY', W / 2, b.y + 3, '#0a1a0e', 8, 'center');
   } else {
-    drawScene(clamp(audio.currentTime / DUR, 0, 1));
-    for (const n of notes) if (!n.got) ctx.drawImage(NOTE, Math.round(n.x) - 4, Math.round(n.y + Math.sin(time * 5) * 1.5) - 5);
+    drawScene(clamp(simT / DUR, 0, 1));
+    if (secret) drawSecretSky();
+    for (const n of notes) {
+      if (n.got) continue;
+      const nx = Math.round(n.x), ny = Math.round(n.y + Math.sin(time * 5) * 1.5);
+      if (n.feather) {
+        // la pluma apenas titila: hay que descubrirla
+        if (Math.sin(time * 9) > -0.3) ctx.drawImage(FEATHER, nx - 3, ny - 5);
+        if (Math.sin(time * 4) > 0.6) { rect('#fff6b0', nx - 6, ny - 1, 1, 1); rect('#fff6b0', nx + 5, ny - 6, 1, 1); }
+      } else {
+        if (n.big) rect('rgba(255,214,64,0.35)', nx - 6, ny - 7, 12, 12);
+        ctx.drawImage(NOTE, nx - 4, ny - 5);
+      }
+    }
     for (const o of obs) drawObstacle(o);
     const run = owl.y >= GROUND && state === 'playing' && !audio.paused ? Math.floor(time * 10) % 2 : 0;
-    if (!(state === 'hit' && Math.floor(time * 12) % 2)) drawOwl(owl.x, owl.y, state === 'hit' ? 1 : owlFrameNow(), owl.y < GROUND, -run);
+    if (!(state === 'hit' && Math.floor(time * 12) % 2)) {
+      if (state === 'playing' && owl.ducking) drawDuck(owl.x, owl.y);
+      else drawOwl(owl.x, owl.y, state === 'hit' ? 1 : owlFrameNow(), owl.y < GROUND, -run);
+    }
     drawPops();
     drawHUD();
     if (banner) {
@@ -1138,10 +1567,12 @@ function draw() {
 
 // ---------- Bucle ----------
 let last = performance.now();
+// el juego avanza siempre en pasos de 1/120 s, en cualquier compu o celular: mismo recorrido para todos
+let acc = 0;
 function frame(now) {
-  const dt = Math.min(1 / 30, (now - last) / 1000);
+  acc += Math.min(0.1, (now - last) / 1000);
   last = now;
-  update(dt);
+  while (acc >= STEP) { update(STEP); acc -= STEP; }
   draw();
   requestAnimationFrame(frame);
 }
@@ -1162,12 +1593,29 @@ cv.addEventListener('pointerdown', e => {
   press({ x: (e.clientX - r.left) / r.width * W, y: (e.clientY - r.top) / r.height * H });
 });
 addEventListener('pointerup', () => { held = false; });
+// botones táctiles para el celular
+function padButton(el, on, off) {
+  el.addEventListener('pointerdown', e => { e.preventDefault(); el.classList.add('on'); on(); });
+  const release = () => { el.classList.remove('on'); off(); };
+  el.addEventListener('pointerup', release);
+  el.addEventListener('pointercancel', release);
+  el.addEventListener('pointerleave', release);
+  el.addEventListener('contextmenu', e => e.preventDefault());
+}
+padButton(document.getElementById('padJump'), () => { held = true; press(); }, () => { held = false; });
+padButton(document.getElementById('padDown'), () => { down = true; }, () => { down = false; });
 addEventListener('pointercancel', () => { held = false; });
 addEventListener('blur', () => { held = false; });
-addEventListener('keyup', e => { if (JUMP_KEYS.includes(e.code)) held = false; });
+const DOWN_KEYS = ['ArrowDown', 'KeyS'];
+addEventListener('keyup', e => {
+  if (JUMP_KEYS.includes(e.code)) held = false;
+  if (DOWN_KEYS.includes(e.code)) down = false;
+});
+addEventListener('blur', () => { down = false; });
 addEventListener('keydown', e => {
   if (state === 'name' || e.target.closest?.('form, button')) return; // escribiendo el nombre o usando un botón
   if (JUMP_KEYS.includes(e.code)) { e.preventDefault(); held = true; }
+  if (DOWN_KEYS.includes(e.code)) { e.preventDefault(); down = true; }
   if (e.repeat) return;
   if (JUMP_KEYS.includes(e.code)) press();
   else if (e.code === 'KeyT' && state === 'retry' && stateT > 0.3) finishRun(false);
@@ -1179,7 +1627,8 @@ document.addEventListener('visibilitychange', () => { if (document.hidden) pause
 function fit() {
   const info = document.getElementById('info');
   const availW = innerWidth - 32 - 16;
-  const availH = innerHeight - 32 - 16 - 16 - info.offsetHeight;
+  const pad = document.getElementById('pad');
+  const availH = innerHeight - 32 - 16 - 16 - info.offsetHeight - (pad.offsetHeight ? pad.offsetHeight + 16 : 0);
   let s = Math.min(availW / W, availH / H);
   if (s >= 2) s = Math.floor(s);
   s = Math.max(1, s);
